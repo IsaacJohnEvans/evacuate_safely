@@ -79,16 +79,5 @@ map1.draw_map()
 map1.update()
 map1.draw_map()
 
-map1.update()
-map1.draw_map()
-
-map1.update()
-map1.draw_map()
-
-map1.update()
-map1.draw_map()
-
-map1.update()
-map1.draw_map()
 
 # %%
