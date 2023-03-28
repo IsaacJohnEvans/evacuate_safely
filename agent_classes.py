@@ -46,7 +46,6 @@ class Map():
         self.agent_in = np.ones(num_agents, int) # An agent in, has not yet reached the exit
         self.agent_bool = np.zeros(map_shape, dtype= bool)
         num_agents_to_spawn = num_agents
-        self.agent_v = np.zeros((num_agents, 2)) # Agent velocities
         self.agent_positions = np.zeros((num_agents, 2, self.max_runs))
         while num_agents_to_spawn != 0:
             self.agent_bool[np.random.randint(0, map_shape[0], num_agents_to_spawn), np.random.randint(0, map_shape[1], num_agents_to_spawn)] = True
@@ -99,13 +98,12 @@ class Map():
             obstacle_force_dir = np.concatenate((np.array([obstacle_force_x]).T, np.array([obstacle_force_y]).T), axis = 1)
             
             # Calculate the total force on the agents
-            total_force = (self.agent_v - exit_force)/self.ta + agent_force_dir + obstacle_force_dir
+            total_force = exit_force + agent_force_dir + obstacle_force_dir
             agent_move = np.multiply(total_force/np.array([np.linalg.norm(total_force, axis = 1)]).T, np.array([self.agent_in]).T)
             agent_move[np.isnan(agent_move)] = 0
             agent_positions = np.add(agent_positions, agent_move)
             self.run += 1
             self.agent_exits = agent_exits
-            self.agent_v = self.agent_positions[:, :, self.run] - self.agent_positions[:, :, self.run- 1]
             self.agent_positions[:, :, self.run] = agent_positions
         
     def run_map(self):
@@ -138,9 +136,9 @@ class Map():
         plt.axis("square")
         plt.show()
 
-map_shape = (200, 200)
+map_shape = (20, 20)
 num_agents = 40
-num_obstacles = 0
+num_obstacles = 100
 num_exits = 1
 max_runs = 200
 
