@@ -4,8 +4,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.animation as ani
 from scipy.spatial import distance_matrix
-from scipy.ndimage import binary_dilation
-
+from sklearn.cluster import KMeans, MeanShift, DBSCAN, AffinityPropagation
 #%matplotlib notebook
 
 #%%    
@@ -17,7 +16,6 @@ class Map():
         self.run = 0
         self.max_runs = max_runs
         self.leading = np.array([np.linspace(0.5, 1, num_agents)]).T
-        print(self.leading)
         
         # Make obstacles
         if obstacle_bool.shape != map_shape:
@@ -53,7 +51,6 @@ class Map():
         self.agent_in = np.ones(num_agents, int)
         self.agent_bool = np.zeros(map_shape, dtype= bool)
         num_agents_to_spawn = num_agents
-        self.agent_v = np.zeros((num_agents, 2))
         self.agent_positions = np.zeros((num_agents, 2, self.max_runs))
         while num_agents_to_spawn != 0:
             self.agent_bool[np.random.randint(0, map_shape[0], num_agents_to_spawn), np.random.randint(0, map_shape[1], num_agents_to_spawn)] = True
@@ -62,19 +59,29 @@ class Map():
         self.agent_positions[:, :, 0] = np.argwhere(self.agent_bool== True)
         self.calm = np.zeros((num_agents, max_runs))
         
-        self.drone_positions = np.zeros((num_drones, 2, max_runs))
+        # Make drones
+        self.drone_pos = np.zeros((num_drones, 2, max_runs))
+        self.num_drones = num_drones
+        self.drone_speed = 5
+        self.drone_pos[:, :, 0] = np.repeat(self.exit_positions, num_drones // num_exits + 1, axis = 0)[:num_drones]
+        self.drone_state = np.zeros((num_drones, 1))
+        
+    def cal_exit_force(self, positions, exit_positions):
+        dist_to_exit = distance_matrix(positions, exit_positions)
+        agent_exits = np.argmin(dist_to_exit, 1)
+        exit_force = np.subtract(exit_positions[agent_exits], positions)
+        exit_force = np.divide(exit_force, np.array([np.linalg.norm(exit_force, axis =1)]).T)
+        return dist_to_exit, exit_force, agent_exits
+    
         
     def update(self):
         if self.run < self.max_runs - 1:
-            agent_positions = self.agent_positions[:, :, self.run]
-            
-            dist_to_exit = distance_matrix(agent_positions, self.exit_positions)
-            agent_exits = np.argmin(dist_to_exit, 1)
-            exit_force = np.subtract(self.exit_positions[agent_exits], agent_positions)
-            exit_force = np.divide(exit_force, np.array([np.linalg.norm(exit_force, axis =1)]).T)
+            print(self.run)
+            agent_pos = self.agent_positions[:, :, self.run]
+            dist_to_exit, exit_force, self.agent_exits = self.cal_exit_force(agent_pos, self.exit_positions)
             self.agent_in[np.min(dist_to_exit, axis= 1)<1] = 0
-            d = distance_matrix(agent_positions, agent_positions) * np.array([self.agent_in]).T
-            d[np.isnan(d)] = 0
+            d = distance_matrix(agent_pos, agent_pos) * np.array([self.agent_in]).T
+            d[d == 0] = 1
             
             # Calmness of the agents is based on the n closest agents
             close_agents = 10
@@ -93,8 +100,8 @@ class Map():
             #self.crush[:, self.run] = crush
             
             # dx and dy are the directions that the agent forces act in
-            dx = np.subtract(agent_positions[:, 0], np.array([agent_positions[:, 0]]).T)/d
-            dy = np.subtract(agent_positions[:, 1], np.array([agent_positions[:, 1]]).T)/d
+            dx = np.subtract(agent_pos[:, 0], np.array([agent_pos[:, 0]]).T)/d
+            dy = np.subtract(agent_pos[:, 1], np.array([agent_pos[:, 1]]).T)/d
             dx[np.isnan(dx)] = 0
             dy[np.isnan(dy)] = 0
             
@@ -104,9 +111,9 @@ class Map():
             agent_force_y = np.sum(np.multiply(agent_force, dy), axis = 1)
             agent_force_dir = np.concatenate((np.array([agent_force_x]).T, np.array([agent_force_y]).T), axis = 1)
             
-            do = distance_matrix(agent_positions, self.obstacle_positions)
-            dox = np.subtract(np.array([agent_positions[:, 0]]).T, np.array([self.obstacle_positions[:, 0]]))/do
-            doy = np.subtract(np.array([agent_positions[:, 1]]).T, np.array([self.obstacle_positions[:, 1]]))/do
+            do = distance_matrix(agent_pos, self.obstacle_positions)
+            dox = np.subtract(np.array([agent_pos[:, 0]]).T, np.array([self.obstacle_positions[:, 0]]))/do
+            doy = np.subtract(np.array([agent_pos[:, 1]]).T, np.array([self.obstacle_positions[:, 1]]))/do
             dox[np.isnan(dox)] = 0
             doy[np.isnan(doy)] = 0
             
@@ -116,7 +123,45 @@ class Map():
             obstacle_force_y = np.sum(np.multiply(obstacle_force, doy), axis = 1)
             obstacle_force_dir = np.concatenate((np.array([obstacle_force_x]).T, np.array([obstacle_force_y]).T), axis = 1)
             
-            total_force = (exit_force*self.leading + agent_force_dir + obstacle_force_dir)* np.array([calm]).T
+            # Drone force
+            drone_pos = self.drone_pos[:, :, self.run]
+            if np.sum(self.drone_state.T[0]) > 0:
+                dd = distance_matrix(agent_pos, drone_pos[self.drone_state.astype(bool).T[0], :])
+                drx = np.subtract(np.array([agent_pos[:, 0]]).T, np.array([drone_pos[self.drone_state.astype(bool).T[0], 0]]))/dd
+                dry = np.subtract(np.array([agent_pos[:, 1]]).T, np.array([drone_pos[self.drone_state.astype(bool).T[0], 1]]))/dd
+                drx[np.isnan(drx)] = 0
+                dry[np.isnan(dry)] = 0
+                drone_force = -np.exp(-dd/10)*2
+                drone_force_x = np.sum(np.multiply(drone_force, drx), axis = 1)
+                drone_force_y = np.sum(np.multiply(drone_force, dry), axis = 1)
+                drone_force_dir = np.concatenate((np.array([drone_force_x]).T, np.array([drone_force_y]).T), axis = 1)
+            else:
+                drone_force_dir = np.zeros((self.num_agents, 2))
+            
+            # Drone movement
+            if np.sum(self.agent_in) > num_drones:
+                kmeans = KMeans(n_clusters=self.num_drones).fit(np.unique(np.multiply(agent_pos, np.repeat(np.array([self.agent_in]).T, 2, axis =1)),axis=0))
+                cluster_centers = kmeans.cluster_centers_
+            else:
+                cluster_centers = self.drone_pos[:, :, 0]
+            
+            drone_exit_dis = distance_matrix(drone_pos, self.exit_positions)
+            self.drone_state[np.any(np.abs(drone_exit_dis) < 1, axis = 1)] = 0
+            
+            drone_centroid_dis = distance_matrix(drone_pos, cluster_centers)
+            self.drone_state[np.any(np.abs(drone_centroid_dis) < 2, axis = 1)] = 1
+            
+            drone_dir = np.subtract(cluster_centers, drone_pos)
+            drone_dir[np.isnan(drone_dir)] = 0
+            drone_dir = drone_dir/np.array([np.linalg.norm(drone_dir, axis = 1)]).T
+            
+            dist_to_exit, drone_exit_force, drone_exits = self.cal_exit_force(drone_pos, self.exit_positions)
+            drone_exit_force[np.isnan(drone_exit_force)] = 0
+            
+            self.drone_pos[:, :, self.run + 1] = drone_pos + np.multiply(drone_dir, np.repeat(-1*(self.drone_state-1), 2, axis = 1)) + np.multiply(drone_exit_force, np.repeat(self.drone_state, 2, axis = 1))/2
+            
+            # Sum forces
+            total_force = (exit_force*self.leading + agent_force_dir + obstacle_force_dir + drone_force_dir)* np.array([calm]).T
             
             # Weighted movement force
             nearby = 5
@@ -131,13 +176,11 @@ class Map():
             
             agent_move = np.multiply(total_force/np.array([np.linalg.norm(total_force, axis = 1)]).T, np.array([self.agent_in]).T)
             agent_move[np.isnan(agent_move)] = 0
-            agent_positions = np.add(agent_positions, agent_move)
+            agent_pos = np.add(agent_pos, agent_move)
             #agent_positions[agent_positions < 0] = 0
             #agent_positions[agent_positions >= map_shape[0]] = map_shape[0] - 1
             self.run += 1
-            self.agent_exits = agent_exits
-            self.agent_v = self.agent_positions[:, :, self.run] - self.agent_positions[:, :, self.run- 1]
-            self.agent_positions[:, :, self.run] = agent_positions
+            self.agent_positions[:, :, self.run] = agent_pos
         
     def run_map(self):
         while self.run < self.max_runs -1 and self.agent_in.any():
@@ -150,7 +193,7 @@ class Map():
         X = self.agent_positions[:, 0, :]
         Y = self.agent_positions[:, 1, :]
         dist_out = np.sum(((-np.diff(X))**2 + (-np.diff(Y))**2)**0.5)
-        print(min_dist_out, dist_out)
+        print(min_dist_out, dist_out, num_agents - np.sum(self.agent_in))
         
     def draw_map(self):
         # Animation plot
@@ -158,7 +201,7 @@ class Map():
         ax.scatter(self.exit_positions[:, 0], self.exit_positions[:, 1], color = 'b', label = 'Exit')
         ax.scatter(self.obstacle_positions[:, 0], self.obstacle_positions[:, 1], color = 'k', label = 'Obstacles')
         scat = ax.scatter(self.agent_positions[:, 0, 0], self.agent_positions[:, 1, 0],color = 'r', label = 'Agent')
-        scat1 = ax.scatter(self.drone_positions[:, 0, 0], self.drone_positions[:, 1, 0],color = 'purple', label = 'Drone')
+        scat1 = ax.scatter(self.drone_pos[:, 0, 0], self.drone_pos[:, 1, 0],color = 'orange', label = 'Drone')
         ax.set(xlim=[0, self.map_shape[0]], ylim=[0, self.map_shape[1]])
         ax.legend()
         def update(frame):
@@ -167,36 +210,22 @@ class Map():
             data = np.stack([x, y]).T
             scat.set_offsets(data)
             
-            x1 = self.drone_positions[:, 0, frame]
-            y1 = self.drone_positions[:, 1, frame]
+            x1 = self.drone_pos[:, 0, frame]
+            y1 = self.drone_pos[:, 1, frame]
             data1 = np.stack([x1, y1]).T
             scat1.set_offsets(data1)
             return (scat, scat1)
         
-        animation = ani.FuncAnimation(fig=fig1, func=update, frames=self.run, interval=50, repeat = False)
+        animation = ani.FuncAnimation(fig=fig1, func=update, frames=self.run, interval=100, repeat = True, repeat_delay = 500)
         plt.show()
         
-        '''
-        # Whole route plot
-        fig = plt.figure()
-        self.agent_positions = self.agent_positions[:, :, :self.run]       
-        plt.scatter(self.agent_positions[:, 0, 0], self.agent_positions[:, 1, 0],color = 'r', label = 'Agent')
-        plt.scatter(self.exit_positions[:, 0], self.exit_positions[:, 1], color = 'b', label = 'Exit')
-        plt.scatter(self.obstacle_positions[:, 0], self.obstacle_positions[:, 1], color = 'k', label = 'Obstacles')
-        plt.plot(self.agent_positions[:, 0, :].T, self.agent_positions[:, 1, :].T, 'orange')
-        plt.xlim(0, self.map_shape[0])
-        plt.ylim(0, self.map_shape[1])
-        plt.legend()
-        plt.axis("square")
-        plt.show()
-        '''
 
 map_shape = (50, 50)
-num_agents = 50
+num_agents = 100
 num_obstacles = 50
-num_exits = 2
-max_runs = 1000
-num_drones = 2
+num_exits = 3
+max_runs = 500
+num_drones = 7
 if num_agents + num_exits + num_obstacles >= map_shape[0] * map_shape[1]:
     raise Exception('There are too many objects for the size of map.')
 
