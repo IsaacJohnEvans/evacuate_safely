@@ -4,8 +4,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.animation as ani
 from scipy.spatial import distance_matrix
-from sklearn.cluster import KMeans, MeanShift, DBSCAN, AffinityPropagation
-#%matplotlib notebook
+from sklearn.cluster import KMeans
 
 #%%    
 class Map():
@@ -237,6 +236,3 @@ obstacle_bool[np.random.randint(0, map_shape[0], num_obstacles), np.random.randi
 map1 = Map(map_shape, num_agents, num_obstacles, num_exits, num_drones, max_runs, obstacle_bool)
 
 map1.run_map()
-
-
-#%%
