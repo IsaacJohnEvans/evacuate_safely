@@ -6,18 +6,18 @@ import matplotlib.animation as ani
 from scipy.spatial import distance_matrix
 from scipy.ndimage import binary_dilation
 
-
-
 #%matplotlib notebook
 
 #%%    
 class Map():
-    def __init__(self, map_shape, num_agents, num_obstacles, num_exits, max_runs = 10, obstacle_bool = None):
+    def __init__(self, map_shape, num_agents, num_obstacles, num_exits, num_drones = 0, max_runs = 10, obstacle_bool = None):
         self.map_shape = map_shape
         self.map = np.zeros(self.map_shape)
         self.ta = 0.5
         self.run = 0
         self.max_runs = max_runs
+        self.leading = np.array([np.linspace(0.5, 1, num_agents)]).T
+        print(self.leading)
         
         # Make obstacles
         if obstacle_bool.shape != map_shape:
@@ -62,7 +62,8 @@ class Map():
         self.agent_positions[:, :, 0] = np.argwhere(self.agent_bool== True)
         self.calm = np.zeros((num_agents, max_runs))
         
-    
+        self.drone_positions = np.zeros((num_drones, 2, max_runs))
+        
     def update(self):
         if self.run < self.max_runs - 1:
             agent_positions = self.agent_positions[:, :, self.run]
@@ -76,11 +77,20 @@ class Map():
             d[np.isnan(d)] = 0
             
             # Calmness of the agents is based on the n closest agents
-            close_agents = 5
+            close_agents = 10
             calm = np.ones(num_agents)
             calm[np.any((d < 1) & (d>0), axis=1)] = np.sum(np.sort(d, axis=1)[:, :close_agents], axis=1)[np.any((d < 1) & (d>0), axis=1)]/close_agents
             calm[calm < 0.5] = 0.5
             self.calm[:, self.run] = calm
+            
+            # Crushes of the agents is based on the n closest agents
+            crush_agents = 10
+            crush = np.ones(num_agents)
+            crush = np.count_nonzero((d < 1), axis = 1).astype(float)
+            crush[crush < crush_agents] = 1
+            crush[crush > crush_agents] = crush[crush > crush_agents]/ crush_agents
+            crush[crush > 2] = 2
+            #self.crush[:, self.run] = crush
             
             # dx and dy are the directions that the agent forces act in
             dx = np.subtract(agent_positions[:, 0], np.array([agent_positions[:, 0]]).T)/d
@@ -89,7 +99,7 @@ class Map():
             dy[np.isnan(dy)] = 0
             
             # Tune agent force
-            agent_force = np.multiply(np.exp(-(d)), np.array([self.agent_in]).T)
+            agent_force = np.multiply(np.multiply(np.exp(-(d/0.5)), np.array([self.agent_in]).T), np.array(crush_agents).T)
             agent_force_x = np.sum(np.multiply(agent_force, dx), axis = 1)
             agent_force_y = np.sum(np.multiply(agent_force, dy), axis = 1)
             agent_force_dir = np.concatenate((np.array([agent_force_x]).T, np.array([agent_force_y]).T), axis = 1)
@@ -99,13 +109,26 @@ class Map():
             doy = np.subtract(np.array([agent_positions[:, 1]]).T, np.array([self.obstacle_positions[:, 1]]))/do
             dox[np.isnan(dox)] = 0
             doy[np.isnan(doy)] = 0
+            
             # Tune obstacle force
-            obstacle_force = np.multiply(np.exp(-(do)), np.array([self.agent_in]).T)
+            obstacle_force = np.multiply(np.exp(-(do)*2), np.array([self.agent_in]).T)
             obstacle_force_x = np.sum(np.multiply(obstacle_force, dox), axis = 1)
             obstacle_force_y = np.sum(np.multiply(obstacle_force, doy), axis = 1)
             obstacle_force_dir = np.concatenate((np.array([obstacle_force_x]).T, np.array([obstacle_force_y]).T), axis = 1)
             
-            total_force = (exit_force + agent_force_dir + obstacle_force_dir)* np.array([calm]).T
+            total_force = (exit_force*self.leading + agent_force_dir + obstacle_force_dir)* np.array([calm]).T
+            
+            # Weighted movement force
+            nearby = 5
+            weighted_force = np.zeros_like(total_force)
+            dc = np.zeros_like(d, dtype=bool)
+            dc[d < nearby] = True
+            dc[self.agent_in, :] = False
+            dc[self.agent_in, :] = True
+            for i in range(num_agents):
+                weighted_force[i, :] += np.sum(total_force[dc[i, :], :], axis =0)/np.sum(dc[i, :])
+            total_force = np.multiply(total_force, (np.ones((num_agents, 1))- self.leading))/3 + total_force
+            
             agent_move = np.multiply(total_force/np.array([np.linalg.norm(total_force, axis = 1)]).T, np.array([self.agent_in]).T)
             agent_move[np.isnan(agent_move)] = 0
             agent_positions = np.add(agent_positions, agent_move)
@@ -135,6 +158,7 @@ class Map():
         ax.scatter(self.exit_positions[:, 0], self.exit_positions[:, 1], color = 'b', label = 'Exit')
         ax.scatter(self.obstacle_positions[:, 0], self.obstacle_positions[:, 1], color = 'k', label = 'Obstacles')
         scat = ax.scatter(self.agent_positions[:, 0, 0], self.agent_positions[:, 1, 0],color = 'r', label = 'Agent')
+        scat1 = ax.scatter(self.drone_positions[:, 0, 0], self.drone_positions[:, 1, 0],color = 'purple', label = 'Drone')
         ax.set(xlim=[0, self.map_shape[0]], ylim=[0, self.map_shape[1]])
         ax.legend()
         def update(frame):
@@ -142,7 +166,13 @@ class Map():
             y = self.agent_positions[:, 1, frame]
             data = np.stack([x, y]).T
             scat.set_offsets(data)
-            return (scat)
+            
+            x1 = self.drone_positions[:, 0, frame]
+            y1 = self.drone_positions[:, 1, frame]
+            data1 = np.stack([x1, y1]).T
+            scat1.set_offsets(data1)
+            return (scat, scat1)
+        
         animation = ani.FuncAnimation(fig=fig1, func=update, frames=self.run, interval=50, repeat = False)
         plt.show()
         
@@ -161,17 +191,21 @@ class Map():
         plt.show()
         '''
 
-map_shape = (100, 100)
-num_agents = 100
-num_obstacles = 3000
+map_shape = (50, 50)
+num_agents = 50
+num_obstacles = 50
 num_exits = 2
 max_runs = 1000
+num_drones = 2
 if num_agents + num_exits + num_obstacles >= map_shape[0] * map_shape[1]:
     raise Exception('There are too many objects for the size of map.')
 
 obstacle_bool = np.zeros(map_shape, dtype=bool)
 obstacle_bool[0:int(map_shape[0]/2), 0:map_shape[0]:3] = True
-map1 = Map(map_shape, num_agents, num_obstacles, num_exits, max_runs, obstacle_bool)
+obstacle_bool[int(map_shape[0]/2): map_shape[0], 0:map_shape[0]:3] = True
+obstacle_bool = np.zeros(map_shape, dtype=bool)
+obstacle_bool[np.random.randint(0, map_shape[0], num_obstacles), np.random.randint(0, map_shape[1], num_obstacles)] = True
+map1 = Map(map_shape, num_agents, num_obstacles, num_exits, num_drones, max_runs, obstacle_bool)
 
 map1.run_map()
 
