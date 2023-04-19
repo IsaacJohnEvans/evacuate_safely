@@ -256,6 +256,10 @@ num_line = np.linspace(0, map_shape[0], map_shape[0], endpoint=False, dtype=int)
 
 obstacle_bool[num_line%10 < 5, 0:map_shape[0]:5] = True
 obstacle_bool[0:map_shape[0]:10, (num_line%10) < 5] = True
+obstacle_bool[:5, :] = True
+obstacle_bool[-5:, :] = True
+obstacle_bool[:, :5] = True
+obstacle_bool[:, -5:] = True
 
 map1 = Map(map_shape, num_agents, num_obstacles, num_exits, num_drones, max_runs, obstacle_bool)
 
