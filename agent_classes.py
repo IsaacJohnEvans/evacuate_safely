@@ -43,8 +43,8 @@ class Map():
             exit_loc[i, :] = np.array([np.random.randint(-1, 1), np.random.randint(0, map_shape[0])])[:: (-1, 1)[np.random.randint(0, 2)]]
             self.exit_bool[exit_loc[i, 0], exit_loc[i, 1]] = True
             self.exit_bool[self.obstacle_bool] = False
-            i = np.sum(self.exit_bool.astype(int))
-        self.exit_positions = np.argwhere(self.exit_bool == True)
+            i = np.unique(exit_loc, axis =0).shape[0]
+        self.exit_positions = np.unique(exit_loc, axis =0)
         
         # Spawn Agents
         self.num_agents = num_agents
@@ -58,17 +58,18 @@ class Map():
             num_agents_to_spawn = num_agents - np.sum(self.agent_bool.astype(int))
         self.agent_positions[:, :, 0] = np.argwhere(self.agent_bool== True)
         self.calm = np.zeros((num_agents, max_runs))
-        
+
         exit_dis = np.zeros(map_shape)
         exit_dis[self.exit_bool] = 1
         iter = 1
         struct = np.ones((3, 3))
         struct[1, 1] = 0
+        '''
         while (exit_dis[np.logical_not(self.obstacle_bool)] == 0).any():
             iter += 1
             exit_dis[np.logical_and(binary_dilation(exit_dis, struct.astype(bool), mask=np.logical_not(self.obstacle_bool)), exit_dis ==0)] = iter
         exit_dis[self.obstacle_bool] = np.inf
-        
+        '''
         # Make drones
         self.drone_pos = np.zeros((num_drones, 2, max_runs))
         self.num_drones = num_drones
@@ -118,6 +119,8 @@ class Map():
         
     def update(self):
         if self.run < self.max_runs - 1:
+            if self.run % 20 == 0:
+                print(self.run)
             agent_pos = self.agent_positions[:, :, self.run]
             dist_to_exit, exit_force, self.agent_exits = self.cal_exit_force(agent_pos, self.exit_positions)
             self.agent_in[np.min(dist_to_exit, axis= 1)<1] = 0
@@ -224,8 +227,12 @@ class Map():
         ax.scatter(self.obstacle_positions[:, 0], self.obstacle_positions[:, 1], color = 'k', label = 'Obstacles')
         scat = ax.scatter(self.agent_positions[:, 0, 0], self.agent_positions[:, 1, 0],color = 'r', label = 'Agent')
         scat1 = ax.scatter(self.drone_pos[:, 0, 0], self.drone_pos[:, 1, 0],color = 'orange', label = 'Drone')
-        ax.set(xlim=[0, self.map_shape[0]], ylim=[0, self.map_shape[1]])
-        ax.legend()
+        #plt.plot(self.agent_positions[:, 0, :].T, self.agent_positions[:, 1, :].T, 'orange')
+        ax.set(xlim=[-1, self.map_shape[0]], ylim=[-1, self.map_shape[1]])
+        ax.axis('square')
+        ax.legend(loc='upper left')
+        #plt.savefig('crush_crowd.png', dpi = 500)
+        #plt.show()
         def update(frame):
             x = self.agent_positions[:, 0, frame]
             y = self.agent_positions[:, 1, frame]
@@ -236,18 +243,18 @@ class Map():
             y1 = self.drone_pos[:, 1, frame]
             data1 = np.stack([x1, y1]).T
             scat1.set_offsets(data1)
-            return (scat, scat1)
+            return (scat), #scat1)
         
-        animation = ani.FuncAnimation(fig=fig1, func=update, frames=self.run, interval=100, repeat = True, repeat_delay = 500)
+        animation = ani.FuncAnimation(fig=fig1, func=update, frames=self.run, interval=50, repeat = True, repeat_delay = 500)
         plt.show()
+        animation.save(filename="crowd_5.gif", writer="pillow")
         
-
 map_shape = (50, 50)
 num_agents = 100
-num_obstacles = 500
-num_exits = 3
+num_obstacles = 50
+num_exits = 10
 max_runs = 500
-num_drones = 10
+num_drones = 1
 if num_agents + num_exits + num_obstacles >= map_shape[0] * map_shape[1]:
     raise Exception('There are too many objects for the size of map.')
 
@@ -255,11 +262,20 @@ obstacle_bool = np.zeros(map_shape, dtype=bool)
 num_line = np.linspace(0, map_shape[0], map_shape[0], endpoint=False, dtype=int)
 
 obstacle_bool[num_line%10 < 5, 0:map_shape[0]:5] = True
-obstacle_bool[0:map_shape[0]:10, (num_line%10) < 5] = True
-obstacle_bool[:5, :] = True
-obstacle_bool[-5:, :] = True
-obstacle_bool[:, :5] = True
-obstacle_bool[:, -5:] = True
+#obstacle_bool[0:map_shape[0]:10, (num_line%10) < 5] = True
+
+'''
+num_obstacles_to_spawn = num_obstacles
+while num_obstacles_to_spawn != 0:
+    obstacle_bool[np.unravel_index(np.random.choice(np.linspace(0, 2500, 2500, endpoint=False, dtype = int), num_obstacles_to_spawn), map_shape)] = 1
+    num_obstacles_to_spawn = num_obstacles - np.sum(obstacle_bool.astype(int))
+obstacle_bool = binary_dilation(obstacle_bool, np.ones((3,3)))
+'''
+
+obstacle_bool[:5, :] = False
+obstacle_bool[-5:, :] = False
+obstacle_bool[:, :5] = False
+obstacle_bool[:, -5:] = False
 
 map1 = Map(map_shape, num_agents, num_obstacles, num_exits, num_drones, max_runs, obstacle_bool)
 
