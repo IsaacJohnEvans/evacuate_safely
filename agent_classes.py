@@ -9,16 +9,15 @@ from sklearn.cluster import KMeans
 
 #%%    
 class Map():
-    def __init__(self, map_shape, num_agents, num_obstacles, num_exits, num_drones = 0, max_runs = 10, obstacle_bool = np.array([])):
+    def __init__(self, map_shape, num_agents, num_obstacles, num_exits, num_drones = 0, max_runs = 10, obstacle_bool = np.array([]), exit_pos = np.array([])):
         self.map_shape = map_shape
         self.map = np.zeros(self.map_shape)
-        self.ta = 0.5
         self.run = 0
         self.max_runs = max_runs
         self.leading = np.array([np.linspace(0.5, 1, num_agents)]).T
         
         # Make obstacles
-        if obstacle_bool.size > 0:
+        if obstacle_bool.size == 0:
             self.obstacle_bool = np.zeros(np.array(map_shape), dtype=bool)
             num_obstacles_to_spawn = num_obstacles
             while num_obstacles_to_spawn != 0:
@@ -37,6 +36,7 @@ class Map():
         
         # Make exits
         self.exit_bool = np.zeros(map_shape, dtype= bool)
+        
         exit_loc = np.zeros((num_exits, 2), dtype=int)
         i = 0 
         while i < num_exits:
@@ -58,6 +58,16 @@ class Map():
             num_agents_to_spawn = num_agents - np.sum(self.agent_bool.astype(int))
         self.agent_positions[:, :, 0] = np.argwhere(self.agent_bool== True)
         self.calm = np.zeros((num_agents, max_runs))
+        
+        exit_dis = np.zeros(map_shape)
+        exit_dis[self.exit_bool] = 1
+        iter = 1
+        struct = np.ones((3, 3))
+        struct[1, 1] = 0
+        while (exit_dis[np.logical_not(self.obstacle_bool)] == 0).any():
+            iter += 1
+            exit_dis[np.logical_and(binary_dilation(exit_dis, struct.astype(bool), mask=np.logical_not(self.obstacle_bool)), exit_dis ==0)] = iter
+        exit_dis[self.obstacle_bool] = np.inf
         
         # Make drones
         self.drone_pos = np.zeros((num_drones, 2, max_runs))
@@ -134,14 +144,14 @@ class Map():
             agent_force_dir = np.multiply(agent_force_dir, np.array(crush_agents).T)
             
             do, dox, doy = self.distance_between(agent_pos, self.obstacle_positions, 1)
-            obstacle_force = np.multiply(np.exp(-(do)*2), np.array([self.agent_in]).T)
+            obstacle_force = np.multiply(np.exp(-(do*5))*100, np.array([self.agent_in]).T)
             obstacle_force_dir = self.apply_force(obstacle_force, dox, doy)
             
             # Drone force
             drone_pos = self.drone_pos[:, :, self.run]
             if np.sum(self.drone_state.T[0]) > 0:
                 dd, drx, dry = self.distance_between(agent_pos, drone_pos[self.drone_state.astype(bool).T[0], :], 1)
-                drone_force = -np.exp(-dd/10)*2
+                drone_force = -np.exp(-dd/5)*2
                 drone_force_dir = self.apply_force(drone_force, drx, dry)
             else:
                 drone_force_dir = np.zeros((self.num_agents, 2))
@@ -169,7 +179,7 @@ class Map():
             
             # Drone obstacle avoidance
             drone_obs_dist, drone_obs_dist_x, drone_obs_dist_y = self.distance_between(drone_pos, self.obstacle_positions, 1)
-            drone_obs_force = np.exp(-(drone_obs_dist)*2)/2
+            drone_obs_force = np.exp(-(drone_obs_dist)*5)*100
             drone_obs_force_dir = self.apply_force(drone_obs_force, drone_obs_dist_x, drone_obs_dist_y)
             
             self.drone_pos[:, :, self.run + 1] = drone_pos + drone_obs_force_dir + np.multiply(drone_dir, np.repeat(-1*(self.drone_state-1), 2, axis = 1)) + np.multiply(np.add(drone_exit_force * 0.7, drone_dir*0.3), np.repeat(self.drone_state, 2, axis = 1))
@@ -242,9 +252,13 @@ if num_agents + num_exits + num_obstacles >= map_shape[0] * map_shape[1]:
     raise Exception('There are too many objects for the size of map.')
 
 obstacle_bool = np.zeros(map_shape, dtype=bool)
-obstacle_bool[0:int(map_shape[0]/2), 0:map_shape[0]:3] = True
-obstacle_bool[int(map_shape[0]/2): map_shape[0], 0:map_shape[0]:3] = True
+num_line = np.linspace(0, map_shape[0], map_shape[0], endpoint=False, dtype=int)
+
+obstacle_bool[num_line%10 < 5, 0:map_shape[0]:5] = True
+obstacle_bool[0:map_shape[0]:10, (num_line%10) < 5] = True
 
 map1 = Map(map_shape, num_agents, num_obstacles, num_exits, num_drones, max_runs, obstacle_bool)
+
+#map1.draw_map()
 
 map1.run_map()
