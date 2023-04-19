@@ -9,7 +9,7 @@ from sklearn.cluster import KMeans
 
 #%%    
 class Map():
-    def __init__(self, map_shape, num_agents, num_obstacles, num_exits, num_drones = 0, max_runs = 10, obstacle_bool = None):
+    def __init__(self, map_shape, num_agents, num_obstacles, num_exits, num_drones = 0, max_runs = 10, obstacle_bool = np.array([])):
         self.map_shape = map_shape
         self.map = np.zeros(self.map_shape)
         self.ta = 0.5
@@ -18,7 +18,7 @@ class Map():
         self.leading = np.array([np.linspace(0.5, 1, num_agents)]).T
         
         # Make obstacles
-        if obstacle_bool.shape != map_shape:
+        if obstacle_bool.size > 0:
             self.obstacle_bool = np.zeros(np.array(map_shape), dtype=bool)
             num_obstacles_to_spawn = num_obstacles
             while num_obstacles_to_spawn != 0:
@@ -152,6 +152,7 @@ class Map():
                 cluster_centers = kmeans.cluster_centers_
             else:
                 cluster_centers = self.drone_pos[:, :, 0]
+                cluster_centers[:(np.sum(self.agent_in)), :] = agent_pos[self.agent_in.astype(bool), :]
             
             drone_exit_dis = distance_matrix(drone_pos, self.exit_positions)
             self.drone_state[np.any(np.abs(drone_exit_dis) < 1, axis = 1)] = 0
@@ -243,8 +244,7 @@ if num_agents + num_exits + num_obstacles >= map_shape[0] * map_shape[1]:
 obstacle_bool = np.zeros(map_shape, dtype=bool)
 obstacle_bool[0:int(map_shape[0]/2), 0:map_shape[0]:3] = True
 obstacle_bool[int(map_shape[0]/2): map_shape[0], 0:map_shape[0]:3] = True
-obstacle_bool = np.zeros(map_shape, dtype=bool)
-obstacle_bool[np.random.randint(0, map_shape[0], num_obstacles), np.random.randint(0, map_shape[1], num_obstacles)] = True
+
 map1 = Map(map_shape, num_agents, num_obstacles, num_exits, num_drones, max_runs, obstacle_bool)
 
 map1.run_map()
