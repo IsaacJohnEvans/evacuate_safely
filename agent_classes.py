@@ -166,7 +166,12 @@ class Map():
             dist_to_exit, drone_exit_force, drone_exits = self.cal_exit_force(drone_pos, self.exit_positions)
             drone_exit_force[np.isnan(drone_exit_force)] = 0
             
-            self.drone_pos[:, :, self.run + 1] = drone_pos + np.multiply(drone_dir, np.repeat(-1*(self.drone_state-1), 2, axis = 1)) + np.multiply(np.add(drone_exit_force * 0.75, drone_dir*0.25), np.repeat(self.drone_state, 2, axis = 1))/2
+            # Drone obstacle avoidance
+            drone_obs_dist, drone_obs_dist_x, drone_obs_dist_y = self.distance_between(drone_pos, self.obstacle_positions, 1)
+            drone_obs_force = np.exp(-(drone_obs_dist)*2)/2
+            drone_obs_force_dir = self.apply_force(drone_obs_force, drone_obs_dist_x, drone_obs_dist_y)
+            
+            self.drone_pos[:, :, self.run + 1] = drone_pos + drone_obs_force_dir + np.multiply(drone_dir, np.repeat(-1*(self.drone_state-1), 2, axis = 1)) + np.multiply(np.add(drone_exit_force * 0.7, drone_dir*0.3), np.repeat(self.drone_state, 2, axis = 1))
             
             # Sum forces
             total_force = (exit_force*self.leading + agent_force_dir + obstacle_force_dir + drone_force_dir)* np.array([calm]).T
@@ -185,8 +190,6 @@ class Map():
             agent_move = np.multiply(total_force/np.array([np.linalg.norm(total_force, axis = 1)]).T, np.array([self.agent_in]).T)
             agent_move[np.isnan(agent_move)] = 0
             agent_pos = np.add(agent_pos, agent_move)
-            #agent_positions[agent_positions < 0] = 0
-            #agent_positions[agent_positions >= map_shape[0]] = map_shape[0] - 1
             self.run += 1
             self.agent_positions[:, :, self.run] = agent_pos
         
